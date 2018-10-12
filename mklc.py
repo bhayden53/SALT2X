@@ -1,7 +1,7 @@
 import numpy as np
 from astropy.table import Table
 from astropy.cosmology import Planck15 as cosmo
-from TwoStretchSalt import *
+from Salt2X import *
 import helpers
 import astropy
 import sncosmo
@@ -182,7 +182,7 @@ def do_stuff(ctr):
         absmag = MB - ar*x1r - af*x1f + beta*c + np.random.normal(scale=sigint, size=1)[0]
         mB = mu + absmag
 
-        source = TwoStretchSalt(version='2.4', modeldir=modeldir)
+        source = Salt2XSource(version='2.4', modeldir=modeldir)
         model  = sncosmo.Model(source=source, effects=[dust], effect_names=['mw'], effect_frames=['obs'])
 
         model.set(z=z, x1=x1f, s=x1r, c=c, t0=t0, mwebv=mwebv)

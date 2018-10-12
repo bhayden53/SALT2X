@@ -20,7 +20,7 @@ from copy import copy as cp
 from textwrap import dedent
 from math import ceil
 
-class TwoStretchSalt(sncosmo.SALT2Source):
+class Salt2XSource(sncosmo.SALT2Source):
     _param_names = ['x0','x1','s','c']
     param_names_latex = ['x_0','x_1','s','c']
 
@@ -34,7 +34,7 @@ class TwoStretchSalt(sncosmo.SALT2Source):
                  lcrv11file='salt2_lc_relative_variance_1.dat',
                  lcrv01file='salt2_lc_relative_covariance_01.dat',
                  name=None, version=None):
-        super(TwoStretchSalt, self).__init__(modeldir=modeldir,
+        super(Salt2XSource, self).__init__(modeldir=modeldir,
                                             m0file=m0file,
                                             m1file=m1file,
                                             clfile=clfile,
@@ -50,10 +50,6 @@ class TwoStretchSalt(sncosmo.SALT2Source):
     def _flux(self,phase,wave):
         m0 = self._model['M0'](phase, wave)
         m1 = self._model['M1'](phase, wave)
-        # sr = (self._parameters[1] + self._parameters[2])*2./5.
-        # sf = sr - self._parameters[1]
-        # sr = (self._parameters[1]+self._parameters[2])/2.
-        # sf = (self._parameters[1]-self._parameters[2])/2.
         sr = self._parameters[2]
         sf = self._parameters[1]
         #transitioning x1 smoothly from -3 to 3 days
@@ -66,10 +62,6 @@ class TwoStretchSalt(sncosmo.SALT2Source):
         x1m1[phase<=0] = m1_rise
         x1m1[phase>0] = m1_fall
         x1m1[ind] = m1_trans
-        # print x1m1.shape
-
-        # return (self._parameters[0] * (m0 + x1m1) *
-        #         self._model['clbase'](wave)**self._parameters[3])
 
         return (self._parameters[0] * (m0 + x1m1) *
                 10. ** (-0.4 * self._colorlaw(wave) * self._parameters[3]))

@@ -5,7 +5,7 @@ from astropy.table import Table, Column
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import os
-from TwoStretchSalt import *
+from Salt2X import *
 import helpers
 import fitters
 import emcee
@@ -195,7 +195,7 @@ if args.jla:
                 os.makedirs('./plots/emcee/jla/salt')
 
             # make the 2stretch source, apply dust, set it to the right z
-            source = TwoStretchSalt(version='2.4', modeldir=modeldir)
+            source = Salt2XSource(version='2.4', modeldir=modeldir)
             model  = sncosmo.Model(source=source, effects=[dust], effect_names=['mw'], effect_frames=['obs'])
 
             SaltSource = sncosmo.SALT2Source(version='2.4', modeldir=modeldir)
@@ -452,7 +452,7 @@ if args.cadencesim:
                 os.makedirs('./plots/emcee/cadencesim/salt')
 
             # make the 2stretch source, apply dust, set it to the right z
-            source = TwoStretchSalt(version='2.4', modeldir=modeldir)
+            source = Salt2XSource(version='2.4', modeldir=modeldir)
             model  = sncosmo.Model(source=source, effects=[dust], effect_names=['mw'], effect_frames=['obs'])
 
             SaltSource = sncosmo.SALT2Source(version='2.4', modeldir=modeldir)
