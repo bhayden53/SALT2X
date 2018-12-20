@@ -1,0 +1,350 @@
+// Version History
+// Version 1; starting with a modified version of STEP6 of UNITY
+
+functions {
+    real multi_skewnormal_log (vector x, vector mu, matrix cmat, vector alpha) {
+        return multi_normal_log(x, mu, cmat)
+             + normal_cdf_log(  alpha'*(x - mu), 0, 1);
+    }
+}
+
+data {
+    int<lower=0> n_sne; // number of SNe
+    int n_Uprops;
+    int n_sn_set;
+
+    int sn_set_inds[n_sne];
+
+    vector <lower=0> [n_sne] z_helio;
+    vector <lower=0> [n_sne] z_CMB;
+
+    vector [n_sne] mass;
+    vector [n_sne] dmass;
+    vector [n_sne] pdelay;
+    
+    vector[3 + n_Uprops] obs_mBx1cU [n_sne];
+    matrix[3 + n_Uprops, 3 + n_Uprops] obs_mBx1cU_cov [n_sne];
+
+    int do_twoalpha;
+    int do_twobeta;
+    int do_fullDint;
+    real alphalim;
+    int include_alpha;
+    int Uprops_scale;
+
+    real outl_frac_prior_lnmean;
+    real outl_frac_prior_lnwidth;
+
+    //real outl_mBx1cU_uncertainties [3 + n_Uprops];
+    int lognormal_intr_prior;
+    int apply_delta_x1cUs;
+    int mass_step; // 1 if fitting mass step
+    int delay_step; // 1 if fitting delayed step
+    int allow_alpha_S_N; // 1 if skewed population distributions
+
+}
+
+transformed data {
+    vector [n_sne] phigh;
+    print ("Version 1");
+
+    for (i in 1:n_sne) {
+        phigh[i] <- normal_cdf(mass[i], 10, dmass[i]);
+    }
+}
+
+parameters {
+    real MB [n_sn_set];
+    real delta;
+    real delta_pd; // prompt/delayed
+
+    real <lower = alphalim, upper = 0.5> alpha_angle_low;
+    real <lower = -1.47, upper = 1.47> beta_angle_blue;
+    real <lower = alphalim, upper = 0.5> alpha_angle_high;
+    real <lower = -1.47, upper = 1.47> beta_angle_red;
+
+    vector <lower = -1.47, upper = 1.47> [n_Uprops] gamma_angle;
+
+    //real log10_sigma_int;
+    real <lower = 0> sigma_int [n_sn_set];
+    simplex [3 + n_Uprops] mBx1cU_int_variance;// [n_sn_set];
+
+    vector [2 + n_Uprops] true_x1cUs [n_sne];
+
+    vector [2 + n_Uprops] x1cU_star [n_sn_set];
+    vector [2 + n_Uprops] log10_R_x1cU [n_sn_set];
+    cholesky_factor_corr[2 + n_Uprops] x1cU_Lmat [n_sn_set];
+    vector [2 + n_Uprops] alpha_S_N [n_sn_set];
+
+    real <lower = 0, upper = 0.5> outl_frac [n_sn_set];
+
+    real <lower = 0> u_props_err_scale;
+
+    vector [2 + n_Uprops] delta_x1cUs [n_sn_set];
+    vector [2 + n_Uprops] delta_pd_x1cUs [n_sn_set];
+
+    real cross_term;
+}
+
+
+transformed parameters {
+    real alpha;
+    real dalpha;
+    real beta;
+    real dbeta;
+    vector [n_Uprops] gamma;
+
+    real alpha_L;
+    real alpha_H;
+    real beta_B;
+    real beta_R;
+
+
+    vector [n_Uprops + 2] R_x1cU [n_sn_set];
+
+    matrix [n_Uprops+2, n_Uprops+2] x1cU_rho_mat [n_sn_set];
+    matrix [n_Uprops+2, n_Uprops+2] x1cU_cov_mat [n_sn_set];
+
+    vector [3 + n_Uprops] model_mBx1cU [n_sne];
+    matrix [3 + n_Uprops, 3 + n_Uprops] model_mBx1cU_cov [n_sne];
+
+
+    vector [n_sne] alpha_eff;
+    vector [n_sne] beta_eff;
+
+    real log10_sigma_int [n_sne];
+
+
+    vector [n_sne] model_mu;
+
+    vector [n_sne] outl_loglike;
+    vector [n_sne] PointPosteriors;
+
+    real term1;
+    real term2;
+
+    vector [n_sne] obs_hubble_resid;
+    vector [n_sne] obs_hubble_resid2;
+
+    matrix [3 + n_Uprops, 3 + n_Uprops] outl_mBx1cU_cov;
+    vector [3 + n_Uprops] u_props_err_scale_vect;
+
+
+
+    if (include_alpha == 1) {
+        if (do_twoalpha == 1) {
+            alpha_L <- tan(alpha_angle_low);
+            alpha_H <- tan(alpha_angle_high);
+        } else {
+            alpha_L <- tan(alpha_angle_high);
+            alpha_H <- tan(alpha_angle_high);
+        }
+    } else {
+        alpha_L <- 0;
+        alpha_H <- 0;
+    }
+
+    if (do_twobeta == 1) {
+        beta_B <- tan(beta_angle_blue);
+        beta_R <- tan(beta_angle_red);
+    } else {
+        beta_B <- tan(beta_angle_red);
+        beta_R <- tan(beta_angle_red);
+    }
+
+    alpha <- 0.5*(alpha_L + alpha_H);
+    dalpha <- alpha_H - alpha_L;
+
+    beta <- 0.5*(beta_B + beta_R);
+    dbeta <- beta_R - beta_B;
+
+
+    for (j in 1:n_Uprops) {
+        gamma[j] <- tan(gamma_angle[j]);
+    }
+
+
+    for (i in 1:n_sn_set) {
+        R_x1cU[i] <- exp(log(10.) * log10_R_x1cU[i]);
+        x1cU_rho_mat[i] <- x1cU_Lmat[i] * x1cU_Lmat[i]';
+        x1cU_cov_mat[i] <- x1cU_rho_mat[i] .* (R_x1cU[i] * R_x1cU[i]');
+    }
+
+
+
+
+
+
+
+    // -------------Begin numerical integration-----------------
+
+    model_mu <- (5./log(10.))*log((1. + z_helio) .* (1.00038*z_CMB - 0.227753*exp(log(z_CMB)*2) - 0.0440361*exp(log(z_CMB)*3) + 0.0619502*exp(log(z_CMB)*4) -  0.0220087*exp(log(z_CMB)*5) + 0.00289242*exp(log(z_CMB)*6)  )) + 43.1586133146;
+
+    // -------------End numerical integration---------------
+
+    for (i in 1:n_sn_set) {
+        log10_sigma_int[i] <- log10(sigma_int[i]);
+    }
+
+
+
+    model_mBx1cU_cov <- obs_mBx1cU_cov;
+
+    for (i in 1:n_sne) {
+
+	// If statements are ugly, but they don't seem to be any slower than using a hyperbolic interpolant.
+        if (true_x1cUs[i][1] > 0) {
+            alpha_eff[i] <- alpha + dalpha/2;
+        } else {
+            alpha_eff[i] <- alpha - dalpha/2;
+        }
+
+
+        if (true_x1cUs[i][2] > 0) {
+            beta_eff[i] <- beta + dbeta/2;
+        } else {
+            beta_eff[i] <- beta - dbeta/2;
+        }
+
+	if (Uprops_scale == 1) {
+            u_props_err_scale_vect[1] <- 1.;
+            u_props_err_scale_vect[2] <- 1.;
+            u_props_err_scale_vect[3] <- 1.;
+            for (j in 1:n_Uprops) {
+                u_props_err_scale_vect[3+j] <- u_props_err_scale;
+            }
+            model_mBx1cU_cov[i] <- model_mBx1cU_cov[i] .* (u_props_err_scale_vect * u_props_err_scale_vect');
+        }
+
+
+
+	if (do_fullDint == 1) {
+   	    model_mBx1cU_cov[i][1,1] <- model_mBx1cU_cov[i][1,1] + mBx1cU_int_variance[1]*pow(100, log10_sigma_int[sn_set_inds[i] + 1]);
+            model_mBx1cU_cov[i][2,2] <- model_mBx1cU_cov[i][2,2] + mBx1cU_int_variance[2]*pow(100, log10_sigma_int[sn_set_inds[i] + 1])/(0.1*0.1);
+   	    model_mBx1cU_cov[i][3,3] <- model_mBx1cU_cov[i][3,3] + mBx1cU_int_variance[3]*pow(100, log10_sigma_int[sn_set_inds[i] + 1])/(3.0*3.0); // This is really -3, but it doesn't matter
+	} else {
+            model_mBx1cU_cov[i][1,1] <- model_mBx1cU_cov[i][1,1] + pow(100, log10_sigma_int[sn_set_inds[i] + 1]);
+        }
+
+   	for (j in 1:n_Uprops) {
+	    if (do_fullDint == 1) {
+                model_mBx1cU_cov[i][3+j,3+j] <- model_mBx1cU_cov[i][3+j,3+j] + mBx1cU_int_variance[3+j]*pow(100, log10_sigma_int[sn_set_inds[i] + 1])/(0.1*0.1);
+            }
+        }
+
+
+
+        model_mBx1cU[i][1] <- alpha_eff[i]*true_x1cUs[i][1] - beta_eff[i]*true_x1cUs[i][2] - delta*(phigh[i] - 0.5)*mass_step - delta_pd*(pdelay[i] - 0.5)*delay_step  - MB[sn_set_inds[i] + 1] - model_mu[i];
+	obs_hubble_resid[i] <- (obs_mBx1cU[i][1] + alpha_eff[i]*obs_mBx1cU[i][2] - beta_eff[i]*obs_mBx1cU[i][3])  - (MB[sn_set_inds[i] + 1] + model_mu[i]);
+	obs_hubble_resid2[i] <- (obs_mBx1cU[i][1] + alpha_eff[i]*obs_mBx1cU[i][2] - beta_eff[i]*obs_mBx1cU[i][3])  - (MB[sn_set_inds[i] + 1] + model_mu[i]);
+
+        model_mBx1cU[i][2] <- true_x1cUs[i][1];
+        model_mBx1cU[i][3] <- true_x1cUs[i][2];
+
+	for (j in 1:n_Uprops) {
+	    model_mBx1cU[i][1] <- model_mBx1cU[i][1] + gamma[j] * true_x1cUs[i][2+j];
+	    model_mBx1cU[i][3+j] <- true_x1cUs[i][2+j];
+            obs_hubble_resid[i] <- obs_hubble_resid[i] + gamma[j] * obs_mBx1cU[i][3+j];
+            obs_hubble_resid2[i] <- obs_hubble_resid2[i] - gamma[j] * obs_mBx1cU[i][3+j];
+	}
+	model_mBx1cU[i][1] <- -model_mBx1cU[i][1];
+ 
+	//log_sum_exp exponentiates the log(normal), sums the terms, and then takes the log.
+
+
+	outl_mBx1cU_cov <- model_mBx1cU_cov[i];
+	outl_mBx1cU_cov[1,1] <- outl_mBx1cU_cov[1,1] + 0.25;
+
+        term1 <- log(1 - outl_frac[sn_set_inds[i] + 1]) + multi_normal_log(obs_mBx1cU[i], model_mBx1cU[i], model_mBx1cU_cov[i]);
+        term2 <- log(outl_frac[sn_set_inds[i] + 1]) + multi_normal_log(obs_mBx1cU[i], model_mBx1cU[i], outl_mBx1cU_cov);
+
+        //term2 <- log(outl_frac);
+	//for (j in 1:(3 + n_Uprops)) {
+        //    term2 <- term2 + normal_log(obs_mBx1cU[i][j], model_mBx1cU[i][j], outl_mBx1cU_uncertainties[j]);
+        //}
+	
+
+
+        outl_loglike[i] <- term1 - term2;
+
+        PointPosteriors[i] <- log_sum_exp(term1, term2);
+
+    }
+
+}
+
+model {
+
+    increment_log_prob(sum(PointPosteriors));
+
+    for (i in 1:n_sne) {
+        if (allow_alpha_S_N == 1) {
+            increment_log_prob(multi_skewnormal_log(true_x1cUs[i], x1cU_star[sn_set_inds[i] + 1] + delta_x1cUs[sn_set_inds[i] + 1]*(phigh[i] - 0.5),
+					        x1cU_cov_mat[sn_set_inds[i] + 1], alpha_S_N[sn_set_inds[i] + 1]));
+        } else {
+            true_x1cUs[i] ~ multi_normal(x1cU_star[sn_set_inds[i] + 1] + delta_x1cUs[sn_set_inds[i] + 1]*(phigh[i] - 0.5),
+					        x1cU_cov_mat[sn_set_inds[i] + 1]);
+        }
+    }
+
+
+    for (i in 1:n_sn_set) {
+        x1cU_Lmat[i] ~ lkj_corr_cholesky(1.0);
+        outl_frac[i] ~ lognormal(outl_frac_prior_lnmean, outl_frac_prior_lnwidth);
+
+        if (lognormal_intr_prior == 1) {
+            sigma_int[i] ~ lognormal(-2.3, 0.5);
+        }
+
+        alpha_S_N[i][1] ~ normal(0, 5);
+        alpha_S_N[i][2] ~ normal(0, 50);
+        for (j in 3:(n_Uprops + 2)) {
+            alpha_S_N[i][j] ~ normal(0, 5);
+        }
+    }
+    u_props_err_scale ~ lognormal(0, 0.5);
+
+    if (do_twoalpha == 0) {
+        alpha_angle_low ~ normal(0, 0.001);
+    }
+
+    if (do_twobeta == 0) {
+        beta_angle_blue ~ normal(0, 0.001);
+    }
+
+    if (include_alpha == 0) {
+        alpha_angle_low ~ normal(0, 0.001);
+        alpha_angle_high ~ normal(0, 0.001);
+    }
+
+
+    //print ("alpha ", alpha, "beta ", beta, "MB ", MB, "Om ", Om, "blind_values ", blind_values)
+
+
+    delta ~ normal(0, 0.5);
+
+    if (apply_delta_x1cUs == 0) {
+        for (i in 1:n_sn_set) {
+            delta_x1cUs[i] ~ normal(0, 0.001);
+            delta_pd_x1cUs[i] ~ normal(0, 0.001);
+        }
+    }
+
+    if (mass_step == 0) {
+        delta ~ normal(0, 0.001);
+        for (i in 1:n_sn_set) {
+            delta_x1cUs[i] ~ normal(0, 0.001);
+        }
+    }
+
+    if (delay_step == 0) {
+        delta_pd ~ normal(0, 0.001);
+        for (i in 1:n_sn_set) {
+            delta_pd_x1cUs[i] ~ normal(0, 0.001);
+        }
+    }
+
+
+
+    cross_term ~ normal(0, 10);
+}
